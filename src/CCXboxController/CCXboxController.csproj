@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>CCXboxController</RootNamespace>
+    <AssemblyName>CCXboxController</AssemblyName>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyTitle>Claude Code · Xbox Controller</AssemblyTitle>
+    <Product>CCXboxController</Product>
+    <Version>1.0.0</Version>
+    <!-- Whisper.net'in native loader'ı single-file extract'taki "native-only" pathleri bulamıyor;
+         tüm içeriği çıkarttığımızda whisper.dll/ggml.* yan yana olup yükleniyor. -->
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Whisper.net" Version="1.7.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.7.1" />
+  </ItemGroup>
+
+</Project>
