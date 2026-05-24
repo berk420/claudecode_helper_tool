@@ -8,11 +8,12 @@ namespace CCXboxController.Services;
 
 public class WhisperModelManager
 {
-    private const string ModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(20) };
+    private const string BaseUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(60) };
 
     public string ModelFileName { get; }
     public string ModelPath { get; }
+    public string DownloadUrl => BaseUrl + ModelFileName;
 
     public WhisperModelManager(string fileName)
     {
@@ -20,7 +21,8 @@ public class WhisperModelManager
         ModelPath = Path.Combine(ConfigStore.ModelsDir, fileName);
     }
 
-    public bool IsAvailable => File.Exists(ModelPath) && new FileInfo(ModelPath).Length > 50_000_000;
+    // Tiny ggml file is ~75 MB; anything below 30 MB is almost certainly a truncated/aborted download.
+    public bool IsAvailable => File.Exists(ModelPath) && new FileInfo(ModelPath).Length > 30_000_000;
 
     public async Task DownloadAsync(IProgress<double>? progress, CancellationToken token = default)
     {
@@ -28,7 +30,7 @@ public class WhisperModelManager
         var tmp = ModelPath + ".part";
         if (File.Exists(tmp)) File.Delete(tmp);
 
-        using var resp = await Http.GetAsync(ModelUrl, HttpCompletionOption.ResponseHeadersRead, token);
+        using var resp = await Http.GetAsync(DownloadUrl, HttpCompletionOption.ResponseHeadersRead, token);
         resp.EnsureSuccessStatusCode();
         long? total = resp.Content.Headers.ContentLength;
 

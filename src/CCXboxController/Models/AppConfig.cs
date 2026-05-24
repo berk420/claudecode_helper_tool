@@ -6,7 +6,8 @@ namespace CCXboxController.Models;
 public enum ActionType
 {
     Text,
-    Voice
+    Voice,
+    ReadSelection
 }
 
 public class ButtonBinding
@@ -58,7 +59,7 @@ public class AppConfig
         cfg.Buttons["A"].Type = ActionType.Voice;
         cfg.Buttons["B"].Text = "git status\n";
         cfg.Buttons["X"].Text = "Devam et.\n";
-        cfg.Buttons["Y"].Text = "Tüm testleri çalıştır.\n";
+        cfg.Buttons["Y"].Type = ActionType.ReadSelection;
 
         cfg.Sticks["LeftStick"] = new StickBinding();
         cfg.Sticks["RightStick"] = new StickBinding();

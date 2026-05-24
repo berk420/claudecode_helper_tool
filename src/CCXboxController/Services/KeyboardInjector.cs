@@ -7,6 +7,19 @@ namespace CCXboxController.Services;
 public static class KeyboardInjector
 {
     private const ushort VK_RETURN = 0x0D;
+    private const ushort VK_CONTROL = 0x11;
+    private const ushort VK_C = 0x43;
+
+    public static void SendCopyShortcut()
+    {
+        var inputs = new List<Input>(4);
+        AppendVkDown(inputs, VK_CONTROL);
+        AppendVkDown(inputs, VK_C);
+        AppendVkUp(inputs, VK_C);
+        AppendVkUp(inputs, VK_CONTROL);
+        var arr = inputs.ToArray();
+        SendInputInterop.SendInput((uint)arr.Length, arr, System.Runtime.InteropServices.Marshal.SizeOf<Input>());
+    }
 
     public static void TypeText(string text)
     {
@@ -66,6 +79,12 @@ public static class KeyboardInjector
 
     private static void AppendVk(List<Input> list, ushort vk)
     {
+        AppendVkDown(list, vk);
+        AppendVkUp(list, vk);
+    }
+
+    private static void AppendVkDown(List<Input> list, ushort vk)
+    {
         list.Add(new Input
         {
             type = SendInputInterop.INPUT_KEYBOARD,
@@ -74,6 +93,10 @@ public static class KeyboardInjector
                 ki = new KeyboardInput { wVk = vk, wScan = 0, dwFlags = 0, time = 0, dwExtraInfo = 0 }
             }
         });
+    }
+
+    private static void AppendVkUp(List<Input> list, ushort vk)
+    {
         list.Add(new Input
         {
             type = SendInputInterop.INPUT_KEYBOARD,

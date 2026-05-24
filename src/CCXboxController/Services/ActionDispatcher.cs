@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using CCXboxController.Models;
@@ -10,6 +11,7 @@ public class ActionDispatcher
 {
     private readonly AppConfig _config;
     private SpeechService? _speech;
+    private readonly TtsService _tts;
     private readonly Dispatcher _uiDispatcher;
     private RadialMenuWindow? _menu;
     private VoiceStatusWindow? _voiceStatus;
@@ -18,9 +20,10 @@ public class ActionDispatcher
 
     public event EventHandler<string>? Status;
 
-    public ActionDispatcher(AppConfig config, SpeechService? speech, Dispatcher uiDispatcher)
+    public ActionDispatcher(AppConfig config, SpeechService? speech, TtsService tts, Dispatcher uiDispatcher)
     {
         _config = config;
+        _tts = tts;
         _uiDispatcher = uiDispatcher;
         AttachSpeech(speech);
     }
@@ -102,8 +105,39 @@ public class ActionDispatcher
             {
                 KeyboardInjector.TypeText(bind.Text);
             }
+
+            if (pressed && bind.Type == ActionType.ReadSelection)
+            {
+                TriggerReadSelection();
+            }
         }
         catch (Exception ex) { Logger.Error($"HandleButton({button},{pressed})", ex); }
+    }
+
+    private void TriggerReadSelection()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var text = await SelectionCapture.CaptureAsync(_uiDispatcher);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    Status?.Invoke(this, "Seçim yok — okunacak metin bulunamadı");
+                    return;
+                }
+                _tts.Speak(text);
+                Status?.Invoke(this, $"Okunuyor: {Preview(text)}");
+            }
+            catch (Exception ex) { Logger.Error("TriggerReadSelection", ex); }
+        });
+    }
+
+    private static string Preview(string text)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.Length <= 60) return trimmed;
+        return trimmed.Substring(0, 60) + "…";
     }
 
     public void HandleStick(StickId id, StickDirection dir, bool active)
@@ -149,6 +183,10 @@ public class ActionDispatcher
                 if (bind != null && bind.Type == ActionType.Text && !string.IsNullOrEmpty(bind.Text))
                 {
                     KeyboardInjector.TypeText(bind.Text);
+                }
+                else if (bind != null && bind.Type == ActionType.ReadSelection)
+                {
+                    TriggerReadSelection();
                 }
             }
         }

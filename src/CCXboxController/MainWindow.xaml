@@ -49,9 +49,10 @@
                     <TextBlock x:Name="SelectedKeyLabel" Text="Seçim yok" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
                     <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="Aksiyon tipi:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="ActionTypeBox" Width="220" SelectionChanged="ActionTypeBox_SelectionChanged">
+                        <ComboBox x:Name="ActionTypeBox" Width="260" SelectionChanged="ActionTypeBox_SelectionChanged">
                             <ComboBoxItem Content="Metin yaz"/>
                             <ComboBoxItem Content="Sesli yazım (push-to-talk)"/>
+                            <ComboBoxItem Content="Seçimi sesli oku (TTS)"/>
                         </ComboBox>
                     </StackPanel>
                     <TextBlock x:Name="TextLabel" Grid.Row="2" Text="Yazılacak metin (\n = Enter)" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
@@ -94,13 +95,16 @@
                 </StackPanel>
 
                 <!-- Local provider details -->
-                <StackPanel x:Name="LocalPanel" Orientation="Horizontal" Margin="0,0,0,0">
-                    <TextBlock Text="Yerel model:" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="ModelStatus" Text="bilinmiyor" VerticalAlignment="Center"/>
-                    <Button x:Name="DownloadButton" Content="Modeli indir (~466 MB)" Margin="12,0,0,0" Click="DownloadButton_Click"/>
-                    <Button x:Name="CalibrateButton" Content="Ses Kalibrasyonu" Margin="8,0,0,0" Click="CalibrateButton_Click"/>
-                    <TextBlock Text="Initial prompt:" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="16,0,6,0"/>
-                    <TextBlock x:Name="InitialPromptPreview" Text="—" VerticalAlignment="Center" MaxWidth="280" TextTrimming="CharacterEllipsis"/>
+                <StackPanel x:Name="LocalPanel" Orientation="Vertical">
+                    <TextBlock Text="Yerel model:" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <StackPanel x:Name="ModelRadios" Orientation="Vertical" Margin="0,0,0,8"/>
+                    <WrapPanel Orientation="Horizontal" ItemHeight="32">
+                        <TextBlock x:Name="ModelStatus" Text="bilinmiyor" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <Button x:Name="DownloadButton" Content="Modeli indir" Margin="0,0,8,0" Click="DownloadButton_Click"/>
+                        <Button x:Name="CalibrateButton" Content="Ses Kalibrasyonu" Margin="0,0,16,0" Click="CalibrateButton_Click"/>
+                        <TextBlock Text="Initial prompt:" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock x:Name="InitialPromptPreview" Text="—" VerticalAlignment="Center" MaxWidth="280" TextTrimming="CharacterEllipsis"/>
+                    </WrapPanel>
                 </StackPanel>
 
                 <!-- OpenAI provider details -->

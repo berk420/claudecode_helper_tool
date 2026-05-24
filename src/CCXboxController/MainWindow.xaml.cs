@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private AppConfig _config = null!;
     private ControllerService _controller = null!;
     private SpeechService? _speech;
+    private TtsService? _tts;
     private ActionDispatcher? _dispatcher;
     private WhisperModelManager _modelMgr = null!;
 
@@ -23,7 +24,7 @@ public partial class MainWindow : Window
         ("A", "A  (varsayılan: Sesli yazım)"),
         ("B", "B"),
         ("X", "X"),
-        ("Y", "Y"),
+        ("Y", "Y  (varsayılan: Seçimi sesli oku)"),
         ("LB", "LB"),
         ("RB", "RB"),
         ("LT", "LT"),
@@ -49,6 +50,7 @@ public partial class MainWindow : Window
     private string? _selectedKey;
     private bool _suppressEditorEvents;
     private bool _suppressSettingEvents;
+    private readonly Dictionary<string, RadioButton> _modelRadios = new();
 
     public MainWindow()
     {
@@ -73,6 +75,7 @@ public partial class MainWindow : Window
 
         _modelMgr = new WhisperModelManager(_config.Whisper.ModelFileName);
         _suppressSettingEvents = true;
+        BuildModelRadios();
         UpdateModelStatus();
         AutostartBox.IsChecked = AutostartService.IsEnabled();
         SetLangSelection(_config.Whisper.Language);
@@ -90,7 +93,9 @@ public partial class MainWindow : Window
         _speech = new SpeechService();
         _speech.Error += (_, ex) => Dispatcher.BeginInvoke(new Action(() => LastTrigger.Text = $"Ses hatası: {ex.Message}"));
 
-        _dispatcher = new ActionDispatcher(_config, _speech, Dispatcher);
+        _tts = new TtsService(_config.Whisper.Language == "en" ? "en-US" : "tr-TR");
+
+        _dispatcher = new ActionDispatcher(_config, _speech, _tts, Dispatcher);
         _dispatcher.Status += (_, msg) => Dispatcher.BeginInvoke(new Action(() => LastTrigger.Text = msg));
         _controller = new ControllerService();
         _controller.ConnectionChanged += OnConnectionChanged;
@@ -112,6 +117,15 @@ public partial class MainWindow : Window
         }
         if (!_config.Sticks.ContainsKey("LeftStick")) _config.Sticks["LeftStick"] = new StickBinding();
         if (!_config.Sticks.ContainsKey("RightStick")) _config.Sticks["RightStick"] = new StickBinding();
+
+        if (_config.Buttons.TryGetValue("Y", out var y)
+            && y.Type == ActionType.Text
+            && y.Text == "Tüm testleri çalıştır.\n")
+        {
+            y.Type = ActionType.ReadSelection;
+            y.Text = string.Empty;
+            ConfigStore.Save(_config);
+        }
     }
 
     private ITranscriber? BuildTranscriber()
@@ -193,6 +207,7 @@ public partial class MainWindow : Window
     {
         try { _controller?.Dispose(); } catch { }
         try { _speech?.Dispose(); } catch { }
+        try { _tts?.Dispose(); } catch { }
     }
 
     private void OnConnectionChanged(object? sender, bool connected)
@@ -235,7 +250,12 @@ public partial class MainWindow : Window
 
         _suppressEditorEvents = true;
         SelectedKeyLabel.Text = label;
-        ActionTypeBox.SelectedIndex = binding.Type == ActionType.Voice ? 1 : 0;
+        ActionTypeBox.SelectedIndex = binding.Type switch
+        {
+            ActionType.Voice => 1,
+            ActionType.ReadSelection => 2,
+            _ => 0
+        };
         TextBoxValue.Text = binding.Text.Replace("\n", Environment.NewLine);
         TextBoxValue.IsEnabled = binding.Type == ActionType.Text;
         TextLabel.Visibility = binding.Type == ActionType.Text ? Visibility.Visible : Visibility.Collapsed;
@@ -266,7 +286,12 @@ public partial class MainWindow : Window
         if (_suppressEditorEvents || _selectedKey == null) return;
         var (_, binding) = ResolveBinding(_selectedKey);
         if (binding == null) return;
-        binding.Type = ActionTypeBox.SelectedIndex == 1 ? ActionType.Voice : ActionType.Text;
+        binding.Type = ActionTypeBox.SelectedIndex switch
+        {
+            1 => ActionType.Voice,
+            2 => ActionType.ReadSelection,
+            _ => ActionType.Text
+        };
         TextBoxValue.IsEnabled = binding.Type == ActionType.Text;
         TextLabel.Visibility = binding.Type == ActionType.Text ? Visibility.Visible : Visibility.Collapsed;
         ConfigStore.Save(_config);
@@ -301,6 +326,7 @@ public partial class MainWindow : Window
         {
             await _modelMgr.DownloadAsync(progress);
             UpdateModelStatus();
+            RefreshModelRadioLabels();
             if (_config.Whisper.Provider == "local") RebuildTranscriber();
         }
         catch (Exception ex)
@@ -313,16 +339,69 @@ public partial class MainWindow : Window
 
     private void UpdateModelStatus()
     {
+        var entry = WhisperModelCatalog.FindByFileName(_modelMgr.ModelFileName);
         if (_modelMgr.IsAvailable)
         {
-            ModelStatus.Text = $"✓ {_modelMgr.ModelFileName} ({new FileInfo(_modelMgr.ModelPath).Length / 1024 / 1024} MB)";
+            ModelStatus.Text = $"✓ {entry.DisplayName} hazır ({new FileInfo(_modelMgr.ModelPath).Length / 1024 / 1024} MB)";
             DownloadButton.Visibility = Visibility.Collapsed;
         }
         else
         {
-            ModelStatus.Text = "indirilmedi";
+            ModelStatus.Text = $"{entry.DisplayName} indirilmemiş — indirebilirsin →";
+            DownloadButton.Content = $"Modeli indir (~{entry.SizeMB} MB)";
             DownloadButton.Visibility = Visibility.Visible;
         }
+    }
+
+    private void BuildModelRadios()
+    {
+        ModelRadios.Children.Clear();
+        _modelRadios.Clear();
+        foreach (var entry in WhisperModelCatalog.Models)
+        {
+            var rb = new RadioButton
+            {
+                GroupName = "LocalModel",
+                Tag = entry.FileName,
+                Margin = new Thickness(0, 2, 0, 2),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            rb.Checked += ModelRadio_Checked;
+            ModelRadios.Children.Add(rb);
+            _modelRadios[entry.FileName] = rb;
+        }
+        RefreshModelRadioLabels();
+
+        string target = _modelRadios.ContainsKey(_config.Whisper.ModelFileName)
+            ? _config.Whisper.ModelFileName
+            : "ggml-small.bin";
+        if (_modelRadios.TryGetValue(target, out var sel)) sel.IsChecked = true;
+        else if (_modelRadios.Count > 0) _modelRadios.Values.First().IsChecked = true;
+    }
+
+    private void RefreshModelRadioLabels()
+    {
+        foreach (var entry in WhisperModelCatalog.Models)
+        {
+            if (!_modelRadios.TryGetValue(entry.FileName, out var rb)) continue;
+            var path = Path.Combine(ConfigStore.ModelsDir, entry.FileName);
+            bool available = File.Exists(path) && new FileInfo(path).Length > 30_000_000;
+            var suffix = available ? "  ✓ indirili" : "  · indirilmemiş";
+            rb.Content = entry.Label + suffix;
+        }
+    }
+
+    private void ModelRadio_Checked(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingEvents || !IsLoaded) return;
+        if (sender is not RadioButton rb || rb.Tag is not string fileName) return;
+        if (fileName == _config.Whisper.ModelFileName && _modelMgr.ModelFileName == fileName) return;
+
+        _config.Whisper.ModelFileName = fileName;
+        ConfigStore.Save(_config);
+        _modelMgr = new WhisperModelManager(fileName);
+        UpdateModelStatus();
+        if (_config.Whisper.Provider == "local") RebuildTranscriber();
     }
 
     private void LangBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
