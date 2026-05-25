@@ -108,13 +108,13 @@ public class ActionDispatcher
 
             if (pressed && bind.Type == ActionType.ReadSelection)
             {
-                TriggerReadSelection();
+                TriggerReadSelection(bind.Language);
             }
         }
         catch (Exception ex) { Logger.Error($"HandleButton({button},{pressed})", ex); }
     }
 
-    private void TriggerReadSelection()
+    private void TriggerReadSelection(string? language)
     {
         _ = Task.Run(async () =>
         {
@@ -126,11 +126,26 @@ public class ActionDispatcher
                     Status?.Invoke(this, "Seçim yok — okunacak metin bulunamadı");
                     return;
                 }
-                _tts.Speak(text);
-                Status?.Invoke(this, $"Okunuyor: {Preview(text)}");
+                var culture = NormalizeCulture(language);
+                _tts.Speak(text, culture);
+                var langTag = culture ?? "default";
+                Status?.Invoke(this, $"Okunuyor [{langTag}]: {Preview(text)}");
             }
             catch (Exception ex) { Logger.Error("TriggerReadSelection", ex); }
         });
+    }
+
+    private static string? NormalizeCulture(string? language)
+    {
+        if (string.IsNullOrWhiteSpace(language)) return null;
+        var l = language.Trim().ToLowerInvariant();
+        return l switch
+        {
+            "tr" or "tr-tr" => "tr-TR",
+            "en" or "en-us" => "en-US",
+            "en-gb" => "en-GB",
+            _ => language
+        };
     }
 
     private static string Preview(string text)
@@ -186,7 +201,7 @@ public class ActionDispatcher
                 }
                 else if (bind != null && bind.Type == ActionType.ReadSelection)
                 {
-                    TriggerReadSelection();
+                    TriggerReadSelection(bind.Language);
                 }
             }
         }

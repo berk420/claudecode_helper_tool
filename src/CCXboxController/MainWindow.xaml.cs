@@ -18,13 +18,17 @@ public partial class MainWindow : Window
     private TtsService? _tts;
     private ActionDispatcher? _dispatcher;
     private WhisperModelManager _modelMgr = null!;
+    private CcUsageService? _ccUsage;
+    private Views.UsageOverlayWindow? _usageOverlay;
+    private TrayIconService? _tray;
+    private ChatEndNotifierService? _chatEndNotifier;
 
     private static readonly List<(string Key, string Label)> ListEntries = new()
     {
         ("A", "A  (varsayılan: Sesli yazım)"),
         ("B", "B"),
-        ("X", "X"),
-        ("Y", "Y  (varsayılan: Seçimi sesli oku)"),
+        ("X", "X  (varsayılan: Seçimi İngilizce oku)"),
+        ("Y", "Y  (varsayılan: Seçimi Türkçe oku)"),
         ("LB", "LB"),
         ("RB", "RB"),
         ("LT", "LT"),
@@ -78,6 +82,8 @@ public partial class MainWindow : Window
         BuildModelRadios();
         UpdateModelStatus();
         AutostartBox.IsChecked = AutostartService.IsEnabled();
+        UsageOverlayBox.IsChecked = _config.ShowUsageOverlay;
+        ChatEndSoundBox.IsChecked = _config.ChatEndSound.Enabled;
         SetLangSelection(_config.Whisper.Language);
         SetProviderSelection(_config.Whisper.Provider);
         SetOpenAiModelSelection(_config.Whisper.OpenAi.Model);
@@ -94,6 +100,14 @@ public partial class MainWindow : Window
         _speech.Error += (_, ex) => Dispatcher.BeginInvoke(new Action(() => LastTrigger.Text = $"Ses hatası: {ex.Message}"));
 
         _tts = new TtsService(_config.Whisper.Language == "en" ? "en-US" : "tr-TR");
+        _tts.SetRateMultiplier(_config.Tts.RateMultiplier);
+        _tts.SetVolume(_config.Tts.Volume);
+
+        _suppressSettingEvents = true;
+        SetTtsRateSelection(_config.Tts.RateMultiplier);
+        TtsVolumeSlider.Value = _config.Tts.Volume;
+        TtsVolumeLabel.Text = _config.Tts.Volume.ToString();
+        _suppressSettingEvents = false;
 
         _dispatcher = new ActionDispatcher(_config, _speech, _tts, Dispatcher);
         _dispatcher.Status += (_, msg) => Dispatcher.BeginInvoke(new Action(() => LastTrigger.Text = msg));
@@ -106,6 +120,133 @@ public partial class MainWindow : Window
         if (BindingList.Items.Count > 0) BindingList.SelectedIndex = 0;
 
         RebuildTranscriber();
+
+        InitUsageOverlay();
+        InitTray();
+        InitChatEndNotifier();
+        LoadSubagents();
+    }
+
+    private void LoadSubagents()
+    {
+        try
+        {
+            SubagentList.Items.Clear();
+            var agents = SubagentService.Load();
+            foreach (var a in agents) SubagentList.Items.Add(a);
+
+            if (agents.Count == 0)
+            {
+                SubagentsEmptyHint.Text = $"Subagent bulunamadı.\n{SubagentService.AgentsDirectory} altına .md ekle.";
+                SubagentsEmptyHint.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                SubagentsEmptyHint.Visibility = Visibility.Collapsed;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Subagents load", ex);
+            SubagentsEmptyHint.Text = $"Yüklenemedi: {ex.Message}";
+            SubagentsEmptyHint.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void RefreshSubagents_Click(object sender, RoutedEventArgs e) => LoadSubagents();
+
+    private void InitUsageOverlay()
+    {
+        _usageOverlay = new Views.UsageOverlayWindow();
+        if (_config.ShowUsageOverlay) _usageOverlay.ShowOverlay();
+
+        UsageOverlayStatus.Text = "yükleniyor…";
+        _ccUsage = new CcUsageService();
+        _ccUsage.Updated += (_, stats) => Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try
+            {
+                _usageOverlay?.ApplyStats(stats);
+                UsageOverlayStatus.Text = stats == null
+                    ? "güncellenemedi"
+                    : $"son güncelleme: {DateTime.Now:HH:mm:ss}";
+            }
+            catch (Exception ex) { Logger.Error("UsageOverlay apply", ex); }
+        }));
+        _ccUsage.Error += (_, msg) => Dispatcher.BeginInvoke(new Action(() =>
+        {
+            UsageOverlayStatus.Text = $"hata: {msg}";
+        }));
+        _ccUsage.Start();
+    }
+
+    private void InitTray()
+    {
+        try
+        {
+            _tray = new TrayIconService(_config.ShowUsageOverlay);
+            _tray.ShowWindowRequested += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+                Show();
+                Activate();
+            }));
+            _tray.OverlayToggleRequested += (_, on) => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                SetUsageOverlayEnabled(on, fromTray: true);
+            }));
+            _tray.ExitRequested += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                Application.Current.Shutdown();
+            }));
+        }
+        catch (Exception ex) { Logger.Error("Tray init", ex); }
+    }
+
+    private void SetUsageOverlayEnabled(bool on, bool fromTray = false, bool fromCheckbox = false)
+    {
+        _config.ShowUsageOverlay = on;
+        ConfigStore.Save(_config);
+        if (on) _usageOverlay?.ShowOverlay(); else _usageOverlay?.HideOverlay();
+        if (!fromCheckbox && UsageOverlayBox.IsChecked != on) UsageOverlayBox.IsChecked = on;
+        if (!fromTray) _tray?.SetOverlayChecked(on);
+    }
+
+    private void UsageOverlayBox_Toggle(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        bool on = UsageOverlayBox.IsChecked == true;
+        SetUsageOverlayEnabled(on, fromCheckbox: true);
+    }
+
+    private void InitChatEndNotifier()
+    {
+        try
+        {
+            ClaudeHookInstaller.EnsureInstalled();
+            _chatEndNotifier = new ChatEndNotifierService(() => _config.ChatEndSound);
+            _chatEndNotifier.Start();
+            ChatEndSoundStatus.Text = _config.ChatEndSound.Enabled ? "etkin · hook kuruldu" : "kapalı · hook kuruldu";
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("InitChatEndNotifier", ex);
+            ChatEndSoundStatus.Text = $"hata: {ex.Message}";
+        }
+    }
+
+    private void ChatEndSoundBox_Toggle(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        bool on = ChatEndSoundBox.IsChecked == true;
+        _config.ChatEndSound.Enabled = on;
+        ConfigStore.Save(_config);
+        ChatEndSoundStatus.Text = on ? "etkin · hook kuruldu" : "kapalı · hook kuruldu";
+    }
+
+    private void ChatEndSoundTest_Click(object sender, RoutedEventArgs e)
+    {
+        _chatEndNotifier?.TestPlay();
     }
 
     private void EnsureAllKeys()
@@ -118,14 +259,42 @@ public partial class MainWindow : Window
         if (!_config.Sticks.ContainsKey("LeftStick")) _config.Sticks["LeftStick"] = new StickBinding();
         if (!_config.Sticks.ContainsKey("RightStick")) _config.Sticks["RightStick"] = new StickBinding();
 
+        bool dirty = false;
+
         if (_config.Buttons.TryGetValue("Y", out var y)
             && y.Type == ActionType.Text
             && y.Text == "Tüm testleri çalıştır.\n")
         {
             y.Type = ActionType.ReadSelection;
             y.Text = string.Empty;
-            ConfigStore.Save(_config);
+            dirty = true;
         }
+        if (_config.Buttons.TryGetValue("Y", out var y2)
+            && y2.Type == ActionType.ReadSelection
+            && string.IsNullOrWhiteSpace(y2.Language))
+        {
+            y2.Language = "tr";
+            dirty = true;
+        }
+
+        if (_config.Buttons.TryGetValue("X", out var x)
+            && x.Type == ActionType.Text
+            && x.Text == "Devam et.\n")
+        {
+            x.Type = ActionType.ReadSelection;
+            x.Text = string.Empty;
+            x.Language = "en";
+            dirty = true;
+        }
+        if (_config.Buttons.TryGetValue("X", out var x2)
+            && x2.Type == ActionType.ReadSelection
+            && string.IsNullOrWhiteSpace(x2.Language))
+        {
+            x2.Language = "en";
+            dirty = true;
+        }
+
+        if (dirty) ConfigStore.Save(_config);
     }
 
     private ITranscriber? BuildTranscriber()
@@ -208,6 +377,10 @@ public partial class MainWindow : Window
         try { _controller?.Dispose(); } catch { }
         try { _speech?.Dispose(); } catch { }
         try { _tts?.Dispose(); } catch { }
+        try { _ccUsage?.Dispose(); } catch { }
+        try { _usageOverlay?.Close(); } catch { }
+        try { _tray?.Dispose(); } catch { }
+        try { _chatEndNotifier?.Dispose(); } catch { }
     }
 
     private void OnConnectionChanged(object? sender, bool connected)
@@ -313,6 +486,51 @@ public partial class MainWindow : Window
         AutostartService.SetEnabled(on);
         _config.Autostart = on;
         ConfigStore.Save(_config);
+    }
+
+    private static readonly double[] TtsRateValues = { 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
+
+    private void SetTtsRateSelection(double multiplier)
+    {
+        int idx = 1;
+        double best = double.MaxValue;
+        for (int i = 0; i < TtsRateValues.Length; i++)
+        {
+            double d = Math.Abs(TtsRateValues[i] - multiplier);
+            if (d < best) { best = d; idx = i; }
+        }
+        TtsRateBox.SelectedIndex = idx;
+    }
+
+    private void TtsRateBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSettingEvents || !IsLoaded) return;
+        int idx = TtsRateBox.SelectedIndex;
+        if (idx < 0 || idx >= TtsRateValues.Length) return;
+        double m = TtsRateValues[idx];
+        _config.Tts.RateMultiplier = m;
+        ConfigStore.Save(_config);
+        _tts?.SetRateMultiplier(m);
+    }
+
+    private void TtsVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        int v = (int)Math.Round(e.NewValue);
+        if (TtsVolumeLabel != null) TtsVolumeLabel.Text = v.ToString();
+        if (_suppressSettingEvents || !IsLoaded) return;
+        _config.Tts.Volume = v;
+        ConfigStore.Save(_config);
+        _tts?.SetVolume(v);
+    }
+
+    private void TtsTest_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tts == null) return;
+        var sample = _config.Whisper.Language == "en"
+            ? "This is a test of the text to speech voice."
+            : "Bu bir sesli okuma testidir. Hız ve ses düzeyini buradan ayarlayabilirsin.";
+        var culture = _config.Whisper.Language == "en" ? "en-US" : "tr-TR";
+        _tts.Speak(sample, culture);
     }
 
     private async void DownloadButton_Click(object sender, RoutedEventArgs e)

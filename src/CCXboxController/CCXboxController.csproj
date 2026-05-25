@@ -6,6 +6,7 @@
     <RootNamespace>CCXboxController</RootNamespace>
     <AssemblyName>CCXboxController</AssemblyName>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>

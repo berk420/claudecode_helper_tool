@@ -17,7 +17,7 @@ public static class Logger
         Write("ERROR", $"{context}: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
     }
 
-    private static void Write(string level, string msg)
+    public static void Write(string level, string msg)
     {
         try
         {

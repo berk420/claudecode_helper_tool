@@ -1,0 +1,1 @@
+- [Binding persistence kuralı](feedback_bindings_persistence.md) — kullanıcının tüm seçimleri (stick metinleri vb.) restart sonrası korunmalı, config.json'a yazılmalı
