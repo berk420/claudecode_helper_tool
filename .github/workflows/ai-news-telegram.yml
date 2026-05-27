@@ -16,22 +16,18 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          pip install anthropic --quiet
-
           python3 << 'PYEOF'
-          # -*- coding: utf-8 -*-
-          import anthropic, urllib.request, urllib.error, json, sys, os
+          import urllib.request, urllib.error, json, sys, os
           import xml.etree.ElementTree as ET
           from datetime import datetime, timezone, timedelta
           from email.utils import parsedate_to_datetime
 
           MONTHS_TR = {
-              "January": "Ocak", "February": "Şubat", "March": "Mart",
-              "April": "Nisan", "May": "Mayıs", "June": "Haziran",
-              "July": "Temmuz", "August": "Ağustos", "September": "Eylül",
-              "October": "Ekim", "November": "Kasım", "December": "Aralık"
+              "January": "Ocak", "February": "Subat", "March": "Mart",
+              "April": "Nisan", "May": "Mayis", "June": "Haziran",
+              "July": "Temmuz", "August": "Agustos", "September": "Eylul",
+              "October": "Ekim", "November": "Kasim", "December": "Aralik"
           }
           today = datetime.now(timezone.utc)
           TODAY_STR = today.strftime("%d %B %Y")
@@ -40,16 +36,15 @@ jobs:
 
           BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
           CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
-          API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 
-          RSS_FEEDS = [
+          GENERAL_FEEDS = [
               "https://techcrunch.com/category/artificial-intelligence/feed/",
               "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
               "https://venturebeat.com/ai/feed/",
-              "https://www.anthropic.com/news/rss.xml",
           ]
+          ANTHROPIC_FEED = "https://www.anthropic.com/news/rss.xml"
 
-          def fetch_rss(url, cutoff_hours=48):
+          def fetch_rss(url, cutoff_hours=72):
               try:
                   req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                   with urllib.request.urlopen(req, timeout=12) as r:
@@ -72,61 +67,55 @@ jobs:
                       except Exception:
                           pass
                       if title and link:
-                          items.append("- {}\n  {}".format(title, link))
+                          items.append((title, link))
 
                   for entry in root.findall("atom:entry", ns):
                       title   = (entry.findtext("atom:title", "", ns) or "").strip()
                       link_el = entry.find("atom:link", ns)
                       link    = link_el.get("href", "") if link_el is not None else ""
                       if title and link:
-                          items.append("- {}\n  {}".format(title, link))
+                          items.append((title, link))
 
                   return items[:10]
               except Exception as e:
                   print("RSS error {}: {}".format(url, e))
                   return []
 
-          all_items = []
-          for feed_url in RSS_FEEDS:
+          general = []
+          for feed_url in GENERAL_FEEDS:
               items = fetch_rss(feed_url)
-              all_items.extend(items)
-              print("  {}: {} haber".format(feed_url, len(items)))
+              print("  {}: {} items".format(feed_url, len(items)))
+              for item in items:
+                  if item not in general:
+                      general.append(item)
+              if len(general) >= 3:
+                  break
 
-          if not all_items:
-              print("Hic haber bulunamadi.")
+          anthropic_items = fetch_rss(ANTHROPIC_FEED)
+          print("  Anthropic feed: {} items".format(len(anthropic_items)))
+
+          if not general and not anthropic_items:
+              print("No news found.")
               sys.exit(1)
 
-          headlines = "\n".join(all_items[:40])
-          print("Toplam {} haber toplandi.".format(len(all_items)))
+          lines = ["*\U0001f916 Gunun AI Haberleri — {}*".format(TODAY_STR), ""]
 
-          client = anthropic.Anthropic(api_key=API_KEY)
+          for i, (title, link) in enumerate(general[:3], 1):
+              lines.append("*{}. {}*".format(i, title))
+              lines.append("[Kaynak]({})".format(link))
+              lines.append("")
 
-          prompt = (
-              "Bugunun tarihi " + TODAY_STR + ". Asagida AI haber sitelerinden derlenmis basliklar var.\n\n"
-              + headlines
-              + "\n\nGorevin:\n"
-              "1. En onemli 3 genel AI haberini sec (arastirma, sirket, etik/politika, urun gibi farkli kategorilerden)\n"
-              "2. Anthropic veya Claude ile ilgili 1 haber sec (yoksa en yakin olanini sec)\n"
-              "3. Her biri icin 2-3 cumle Turkce ozet yaz\n\n"
-              "SADECE asagidaki Telegram Markdown formatinda cikti ver, baska hicbir sey ekleme:\n\n"
-              "*\U0001f916 Gunun AI Haberleri — " + TODAY_STR + "*\n\n"
-              "*1. [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
-              "*2. [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
-              "*3. [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
-              "*4. Claude / Anthropic — [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
-              "Kurallar:\n"
-              "- Telegram Markdown v1: yalnizca *bold* ve [metin](url) kullan, baska ozel karakter yok\n"
-              "- URL'ler yukardaki listeden alinmis gercek linkler olsun\n"
-              "- Sadece mesaj metnini dondur, aciklama ekleme"
-          )
+          if anthropic_items:
+              title, link = anthropic_items[0]
+              lines.append("*4. Claude / Anthropic — {}*".format(title))
+              lines.append("[Kaynak]({})".format(link))
+          elif len(general) > 3:
+              title, link = general[3]
+              lines.append("*4. {}*".format(title))
+              lines.append("[Kaynak]({})".format(link))
 
-          msg = client.messages.create(
-              model="claude-opus-4-7",
-              max_tokens=2000,
-              messages=[{"role": "user", "content": prompt}]
-          )
-          text = msg.content[0].text.strip()
-          print("Mesaj hazir ({} karakter), gonderiliyor...".format(len(text)))
+          text = "\n".join(lines).strip()
+          print("Message ready ({} chars).".format(len(text)))
 
           def tg_send(body_text, parse_mode="Markdown"):
               body = {"chat_id": CHAT_ID, "text": body_text, "disable_web_page_preview": True}
@@ -161,14 +150,14 @@ jobs:
           for i, chunk in enumerate(chunks):
               status, res = tg_send(chunk)
               if status == 200 and res.get("ok"):
-                  print("Parca {}/{} gonderildi.".format(i + 1, len(chunks)))
+                  print("Chunk {}/{} sent.".format(i + 1, len(chunks)))
               else:
-                  print("Markdown basarisiz (HTTP {}): {} - duz metin deneniyor...".format(status, res))
+                  print("Markdown failed (HTTP {}): {} - retrying as plain text...".format(status, res))
                   status2, res2 = tg_send(chunk, parse_mode=None)
                   if status2 == 200 and res2.get("ok"):
-                      print("Parca {}/{} duz metin olarak gonderildi.".format(i + 1, len(chunks)))
+                      print("Chunk {}/{} sent as plain text.".format(i + 1, len(chunks)))
                   else:
-                      print("Gonderim basarisiz (HTTP {}): {}".format(status2, res2))
+                      print("Failed (HTTP {}): {}".format(status2, res2))
                       ok = False
 
           sys.exit(0 if ok else 1)
