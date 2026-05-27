@@ -1,0 +1,28 @@
+name: 🤖 Günlük AI Haberleri
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # Her gün 09:00 UTC = 12:00 Türkiye (yaz saati)
+  workflow_dispatch:        # GitHub UI'dan manuel tetikleme
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bağımlılıkları yükle
+        run: pip install anthropic
+
+      - name: Haberleri getir ve Telegram'a gönder
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python tools/send_ai_news.py
