@@ -2,7 +2,7 @@ name: Daily AI News to Telegram
 
 on:
   schedule:
-    # Her gün saat 08:00 UTC (Türkiye 11:00)
+    # Her gun saat 08:00 UTC (Turkiye 11:00)
     - cron: '0 8 * * *'
   workflow_dispatch:
 
@@ -21,15 +21,17 @@ jobs:
           pip install anthropic --quiet
 
           python3 << 'PYEOF'
+          # -*- coding: utf-8 -*-
           import anthropic, urllib.request, urllib.error, json, sys, os
           import xml.etree.ElementTree as ET
           from datetime import datetime, timezone, timedelta
           from email.utils import parsedate_to_datetime
 
           MONTHS_TR = {
-              "January":"Ocak","February":"Şubat","March":"Mart","April":"Nisan",
-              "May":"Mayıs","June":"Haziran","July":"Temmuz","August":"Ğgustos",
-              "September":"Eylül","October":"Ekim","November":"Kasım","December":"Aralık"
+              "January": "Ocak", "February": "Şubat", "March": "Mart",
+              "April": "Nisan", "May": "Mayıs", "June": "Haziran",
+              "July": "Temmuz", "August": "Ağustos", "September": "Eylül",
+              "October": "Ekim", "November": "Kasım", "December": "Aralık"
           }
           today = datetime.now(timezone.utc)
           TODAY_STR = today.strftime("%d %B %Y")
@@ -70,67 +72,53 @@ jobs:
                       except Exception:
                           pass
                       if title and link:
-                          items.append(f"- {title}\n  {link}")
+                          items.append("- {}\n  {}".format(title, link))
 
                   for entry in root.findall("atom:entry", ns):
                       title   = (entry.findtext("atom:title", "", ns) or "").strip()
                       link_el = entry.find("atom:link", ns)
                       link    = link_el.get("href", "") if link_el is not None else ""
                       if title and link:
-                          items.append(f"- {title}\n  {link}")
+                          items.append("- {}\n  {}".format(title, link))
 
                   return items[:10]
               except Exception as e:
-                  print(f"RSS hatası {url}: {e}")
+                  print("RSS error {}: {}".format(url, e))
                   return []
 
           all_items = []
           for feed_url in RSS_FEEDS:
               items = fetch_rss(feed_url)
               all_items.extend(items)
-              print(f"  {feed_url}: {len(items)} haber")
+              print("  {}: {} haber".format(feed_url, len(items)))
 
           if not all_items:
-              print("Hiç haber bulunamadı.")
+              print("Hic haber bulunamadi.")
               sys.exit(1)
 
           headlines = "\n".join(all_items[:40])
-          print(f"Toplam {len(all_items)} haber başlığı toplandı.")
+          print("Toplam {} haber toplandi.".format(len(all_items)))
 
           client = anthropic.Anthropic(api_key=API_KEY)
-          prompt = f"""Bugünün tarihi {TODAY_STR}. Aşağıda AI haber sitelerinden derlenmis başlıklar var.
 
-{headlines}
-
-Görevin:
-1. En önemli 3 genel AI haberini seç (araştırma, şirket, etik/politika, ürün gibi farklı kategorilerden)
-2. Anthropic veya Claude ile ilgili 1 haber seç (yoksa en yakın olanı seç)
-3. Her biri için 2-3 cümle Türkçe özet yaz
-
-SADECE aşağıdaki Telegram Markdown formatında çıktı ver, başka hiçbir şey ekleme:
-
-*🤖 Günün AI Haberleri — {TODAY_STR}*
-
-*1. [başlık]*
-[2-3 cümle Türkçe özet]
-[Kaynak](url)
-
-*2. [başlık]*
-[2-3 cümle Türkçe özet]
-[Kaynak](url)
-
-*3. [başlık]*
-[2-3 cümle Türkçe özet]
-[Kaynak](url)
-
-*4. Claude / Anthropic — [başlık]*
-[2-3 cümle Türkçe özet]
-[Kaynak](url)
-
-Kurallar:
-- Telegram Markdown v1: yalnızca *bold* ve [metin](url) kullan, başka özel karakter yok
-- URL'ler yukarıdaki listeden alınmış gerçek linkler olsun
-- Sadece mesaj metnini döndür, açıklama ekleme"""
+          prompt = (
+              "Bugunun tarihi " + TODAY_STR + ". Asagida AI haber sitelerinden derlenmis basliklar var.\n\n"
+              + headlines
+              + "\n\nGorevin:\n"
+              "1. En onemli 3 genel AI haberini sec (arastirma, sirket, etik/politika, urun gibi farkli kategorilerden)\n"
+              "2. Anthropic veya Claude ile ilgili 1 haber sec (yoksa en yakin olanini sec)\n"
+              "3. Her biri icin 2-3 cumle Turkce ozet yaz\n\n"
+              "SADECE asagidaki Telegram Markdown formatinda cikti ver, baska hicbir sey ekleme:\n\n"
+              "*\U0001f916 Gunun AI Haberleri — " + TODAY_STR + "*\n\n"
+              "*1. [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
+              "*2. [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
+              "*3. [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
+              "*4. Claude / Anthropic — [baslik]*\n[2-3 cumle Turkce ozet]\n[Kaynak](url)\n\n"
+              "Kurallar:\n"
+              "- Telegram Markdown v1: yalnizca *bold* ve [metin](url) kullan, baska ozel karakter yok\n"
+              "- URL'ler yukardaki listeden alinmis gercek linkler olsun\n"
+              "- Sadece mesaj metnini dondur, aciklama ekleme"
+          )
 
           msg = client.messages.create(
               model="claude-opus-4-7",
@@ -138,7 +126,7 @@ Kurallar:
               messages=[{"role": "user", "content": prompt}]
           )
           text = msg.content[0].text.strip()
-          print(f"Mesaj hazırlandı ({len(text)} karakter), gönderiliyor...")
+          print("Mesaj hazir ({} karakter), gonderiliyor...".format(len(text)))
 
           def tg_send(body_text, parse_mode="Markdown"):
               body = {"chat_id": CHAT_ID, "text": body_text, "disable_web_page_preview": True}
@@ -146,7 +134,7 @@ Kurallar:
                   body["parse_mode"] = parse_mode
               data = json.dumps(body).encode("utf-8")
               req = urllib.request.Request(
-                  f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                  "https://api.telegram.org/bot{}/sendMessage".format(BOT_TOKEN),
                   data=data, headers={"Content-Type": "application/json"}, method="POST"
               )
               try:
@@ -173,14 +161,14 @@ Kurallar:
           for i, chunk in enumerate(chunks):
               status, res = tg_send(chunk)
               if status == 200 and res.get("ok"):
-                  print(f"Parça {i+1}/{len(chunks)} gönderildi.")
+                  print("Parca {}/{} gonderildi.".format(i + 1, len(chunks)))
               else:
-                  print(f"Markdown başarısız (HTTP {status}): {res} — düz metin deneniyor...")
+                  print("Markdown basarisiz (HTTP {}): {} - duz metin deneniyor...".format(status, res))
                   status2, res2 = tg_send(chunk, parse_mode=None)
                   if status2 == 200 and res2.get("ok"):
-                      print(f"Parça {i+1}/{len(chunks)} düz metin olarak gönderildi.")
+                      print("Parca {}/{} duz metin olarak gonderildi.".format(i + 1, len(chunks)))
                   else:
-                      print(f"Gönderim başarısız (HTTP {status2}): {res2}")
+                      print("Gonderim basarisiz (HTTP {}): {}".format(status2, res2))
                       ok = False
 
           sys.exit(0 if ok else 1)
