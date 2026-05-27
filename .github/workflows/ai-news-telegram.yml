@@ -1,0 +1,148 @@
+name: Daily AI News to Telegram
+
+on:
+  schedule:
+    # Her gün saat 08:00 UTC (Türkiye 11:00)
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    # Elle tetiklemek için
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Fetch AI news and send to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          pip install anthropic --quiet
+
+          python3 << 'PYEOF'
+          import anthropic
+          import urllib.request
+          import json
+          import sys
+          import os
+          from datetime import datetime, timezone
+
+          TODAY = datetime.now(timezone.utc).strftime("%d %B %Y")
+          # Türkçe ay adları
+          MONTHS = {
+              "January": "Ocak", "February": "Şubat", "March": "Mart",
+              "April": "Nisan", "May": "Mayıs", "June": "Haziran",
+              "July": "Temmuz", "August": "Ağustos", "September": "Eylül",
+              "October": "Ekim", "November": "Kasım", "December": "Aralık"
+          }
+          for en, tr in MONTHS.items():
+              TODAY = TODAY.replace(en, tr)
+
+          TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+          TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+          ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+
+          # Claude'dan haber özeti al
+          client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+          prompt = f"""Bugünün tarihi {TODAY}. Sen bir yapay zeka haber editörüsün.
+
+Web'de arama yaparak bugünkü (son 24 saat) en önemli yapay zeka haberlerini bul:
+- 3 adet genel AI haberi (farklı konulardan: araştırma, şirket haberleri, etik/politika, ürün lansmanı vb.)
+- 1 adet Anthropic veya Claude ile doğrudan ilgili haber
+
+Her haber için Telegram Markdown formatında şu yapıyı kullan:
+
+*🤖 Günün AI Haberleri — {TODAY}*
+
+*1. [başlık]*
+[2-3 cümle Türkçe özet]
+[Kaynak](gerçek_url)
+
+*2. [başlık]*
+[2-3 cümle Türkçe özet]
+[Kaynak](gerçek_url)
+
+*3. [başlık]*
+[2-3 cümle Türkçe özet]
+[Kaynak](gerçek_url)
+
+*4. Claude / Anthropic — [başlık]*
+[2-3 cümle Türkçe özet]
+[Kaynak](gerçek_url)
+
+Kurallar:
+- Haberler gerçek ve bugüne ait olsun
+- URL'ler gerçek kaynaklara işaret etsin (uydurma)
+- Özet açık, anlaşılır Türkçe olsun
+- Telegram Markdown v1 formatı: *bold* ve [metin](url) dışında özel karakter kullanma
+- Sadece mesaj metnini döndür, başka açıklama ekleme"""
+
+          message_obj = client.messages.create(
+              model="claude-opus-4-7",
+              max_tokens=2000,
+              messages=[{"role": "user", "content": prompt}]
+          )
+          message_text = message_obj.content[0].text.strip()
+          print("Claude yanıtı alındı, Telegram'a gönderiliyor...")
+          print(f"Mesaj uzunluğu: {len(message_text)} karakter")
+
+          def send_telegram(text, parse_mode="Markdown"):
+              payload = json.dumps({
+                  "chat_id": TELEGRAM_CHAT_ID,
+                  "text": text,
+                  "parse_mode": parse_mode,
+                  "disable_web_page_preview": True
+              }).encode("utf-8")
+              req = urllib.request.Request(
+                  f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                  data=payload,
+                  headers={"Content-Type": "application/json"},
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      body = resp.read().decode("utf-8")
+                      result = json.loads(body)
+                      return resp.status, result
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode("utf-8")
+                  return e.code, json.loads(body)
+
+          # 4096 karakter sınırı — gerekirse böl
+          MAX_LEN = 4096
+          chunks = []
+          if len(message_text) <= MAX_LEN:
+              chunks = [message_text]
+          else:
+              parts = message_text.split("\n\n")
+              current = ""
+              for part in parts:
+                  if len(current) + len(part) + 2 <= MAX_LEN:
+                      current += ("\n\n" if current else "") + part
+                  else:
+                      if current:
+                          chunks.append(current)
+                      current = part
+              if current:
+                  chunks.append(current)
+
+          success = True
+          for i, chunk in enumerate(chunks):
+              status, result = send_telegram(chunk)
+              if status == 200 and result.get("ok"):
+                  print(f"Parça {i+1}/{len(chunks)} gönderildi.")
+              else:
+                  print(f"Markdown ile gönderim başarısız (HTTP {status}): {result}")
+                  print("Düz metin olarak tekrar deneniyor...")
+                  status2, result2 = send_telegram(chunk, parse_mode=None)
+                  if status2 == 200 and result2.get("ok"):
+                      print(f"Parça {i+1}/{len(chunks)} düz metin olarak gönderildi.")
+                  else:
+                      print(f"Düz metin de başarısız (HTTP {status2}): {result2}")
+                      success = False
+
+          sys.exit(0 if success else 1)
+          PYEOF
